@@ -6,8 +6,8 @@ const int dirPinPitch = 2;
 const int stepPinPitch = 3;
 const int dirPinYaw = 4;
 const int stepPinYaw = 5;
-const int dirPinReload = 6;
-const int stepPinReload = 7;
+const int dirPinReload = 7;
+const int stepPinReload = 6;
 const int REN = 8;
 const int LEN = 9;
 const int RPWM = 10;
@@ -33,6 +33,8 @@ AccelStepper stepperReload(motorInterfaceType, stepPinReload, dirPinReload);; //
 //pitch angle starts at 0 on this side (left side) <-------| | ------> pitch angle ends at 180 on this side (right side)
 //yaw angle is 0 parallel to net, positive if turning towards the net on the left (pointing to left side), negative otherwise)
 
+
+
 //turret and ball positions
 float x_ball; //Where ball is hit on x-axis relative to (0,0) coordinate
 float y_ball; //Where ball is hit on y-axis relative to (0,0) coordinate
@@ -43,29 +45,35 @@ float y_turret; //Where turret is on y-axis relative to (0,0) coordinate
 int gear_ratio = 10; 
 int step_resolution = 400; //steps per 1 rotation
 int yawSpeed = 100;
-int pitchSpeed = 400;
+int pitchSpeed = 800;
 int reloadSpeed = 100;
 float angle_to_turn_ratio = 5; //5 degrees per rotation (averaged for datapoints)
 float reloadSteps = 0.75*step_resolution; //75% of a rotation will make the release mechanism function
-float carriage_travel_ratio = 30; //in mm/s, the amount of linear travel per second of the reload platform
+float carriage_travel_ratio = 55; //in mm/s, the amount of linear travel per second of the reload platform
 
 //computational or PI variables
-int orientation = 1; //value of 1-6 dependent on where the ball is relative to the chassis
+//yaw, pitch, carriage_platform_length from PI 
+//int orientation = 1; //value of 1-6 dependent on where the ball is relative to the chassis
 int yawSteps; //number of steps for the yaw motor to move
 int pitchSteps; //number of steps for the pitch motor to move
 float phi; //in degrees
-float phi_old = 0; //in degrees
+//float phi_old = 0; //in degrees
 float thetha; //in degrees
-float thetha_old = 0;//in degrees
+//float thetha_old = 0;//in degrees
 float carriage_platform_length; //how far the reloading platform is pulled back
-int i;
+int i = 0;
+int j = 0;
+float i_max;
+float Time;
+float seconds;
+float tenth_seconds;
 String input;
 int jog_loop_flag = 0;
 
 void setup()
 {  
   Serial.begin(115200);
-  Serial.setTimeout(2); //Milliseconds 
+  Serial.setTimeout(1000); //Milliseconds 
   
   stepperPitch.setMaxSpeed(2000);
   stepperPitch.setAcceleration(2000);
@@ -82,17 +90,14 @@ void setup()
   pinMode(RPWM, OUTPUT);
   pinMode(LPWM, OUTPUT);
 
-  digitalWrite(REN, LOW);
-  digitalWrite(LEN, LOW);
-  
-//  pinMode(RL1, OUTPUT);
-//  pinMode(RL2, OUTPUT);
-//  digitalWrite(RL1, LOW);
-//  digitalWrite(RL2, LOW);
+  digitalWrite(REN, HIGH);
+  digitalWrite(LEN, HIGH);
 
   Serial.println("initializing");
+  delay(1000);
   
 }
+
 void loop() {  
 
   //first 4 just check basic functionality, 5 goes through a sweep and back, 6 will allow the motors to be moved 
@@ -141,52 +146,26 @@ void loop() {
     Serial.println("here");
 
   }
-  else if(input == "3"){//jog platform forward and back 20cm
-    carriage_platform_length = 200; 
-    i = 0;
-    digitalWrite(REN, HIGH);
-    analogWrite(RPWM, 180);
-    while(i<carriage_platform_length*(1/carriage_travel_ratio)*1000){
-      delay(1);
-      //add interrupt if required
-      if(Serial.available()>0){
-          input = Serial.readStringUntil("/n");
-          digitalWrite(REN, LOW);
-          analogWrite(RPWM, 0);
-          break;
-        }
-      i = i + 1;
-    }
-    
-    digitalWrite(REN, LOW);
-    analogWrite(RPWM, 0);
+  else if(input == "3"){//jog platform backward and forward 10cm
+    carriage_platform_length = 100; 
+    Time = abs(carriage_platform_length/carriage_travel_ratio);
+    seconds = int((Time*100-(int((Time*100))%100))/100); //(1.55*100 - 55)/100
+    tenth_seconds = Time-seconds;
+    digitalWrite(LEN, HIGH);
+    run_drill_back(seconds,tenth_seconds);
 
     Serial.println("here");
 
-    //in reverse
+    //forward
     i = 0;
-    digitalWrite(LEN, HIGH);
-    analogWrite(LPWM, 180);
-    while(i<carriage_platform_length*(1/carriage_travel_ratio)*1000){
-      delay(1);
-      //add interrupt if required
-      if(Serial.available()>0){
-          input = Serial.readStringUntil("/n");
-          digitalWrite(LEN, LOW);
-          analogWrite(LPWM, 0);
-          break;
-        }
-      i = i + 1;
-    }
-    
-    digitalWrite(LEN, LOW);
-    analogWrite(LPWM, 0);
+    digitalWrite(REN, HIGH);
+    run_drill_forward(seconds,tenth_seconds);
 
     Serial.println("here");
 
   }
   else if(input == "4"){//move pin in and out
-    stepperReload.moveTo(reloadSteps);
+    stepperReload.moveTo(-reloadSteps);
     stepperReload.setSpeed(reloadSpeed);
     while (stepperReload.distanceToGo() != 0){ 
       stepperReload.runSpeedToPosition(); 
@@ -281,39 +260,19 @@ void loop() {
           input = Serial.parseInt();
           carriage_platform_length = input.toInt();
           i = 0;
-          if(carriage_platform_length > 0){
-            digitalWrite(REN, HIGH);
-            analogWrite(RPWM, 180);
-            while(i<carriage_platform_length*(1/carriage_travel_ratio)*1000){
-              delay(1);
-              //add interrupt if required
-              if(Serial.available()>0){
-                  input = Serial.readStringUntil("/n");
-                  digitalWrite(REN, LOW);
-                  analogWrite(RPWM, 0);
-                  break;
-                }
-              i = i + 1;
-            }
-            digitalWrite(REN, LOW);
-            analogWrite(RPWM, 0);
+          if(carriage_platform_length < 0){
+             Time = abs(carriage_platform_length/carriage_travel_ratio);
+             seconds = int((Time*100-(int((Time*100))%100))/100); //(1.55*100 - 55)/100
+             tenth_seconds = Time-seconds;
+             digitalWrite(LEN, HIGH);
+             run_drill_back(seconds,tenth_seconds);
           }
-          else if(carriage_platform_length < 0){
-              digitalWrite(LEN, HIGH);
-              analogWrite(LPWM, 180);
-              while(i<carriage_platform_length*(1/carriage_travel_ratio)*1000){
-                delay(1);
-                //add interrupt if required
-                if(Serial.available()>0){
-                    input = Serial.readStringUntil("/n");
-                    digitalWrite(LEN, LOW);
-                    analogWrite(LPWM, 0);
-                    break;
-                  }
-                i = i + 1;
-              }
-              digitalWrite(LEN, LOW);
-              analogWrite(LPWM, 0);
+          else if(carriage_platform_length > 0){
+             Time = abs(carriage_platform_length/carriage_travel_ratio);
+             seconds = int((Time*100-(int((Time*100))%100))/100); //(1.55*100 - 55)/100
+             tenth_seconds = Time-seconds;
+             digitalWrite(REN, HIGH);
+             run_drill_forward(seconds,tenth_seconds);
             }
             Serial.println("Enter 1 to jog again, 2 to exit");
             while(Serial.available() != true){
@@ -326,6 +285,31 @@ void loop() {
             else{
               jog_loop_flag = 1;
             }
+          }
+        }
+        else if(input == "4"){
+          Serial.println("Enter amount to move referenced to original position (integer only (0 pulls out pin to 300 )): ");
+          while(Serial.available() != true){
+           //wait for command to be given
+          }
+          input = Serial.parseInt();
+          reloadSteps = input.toInt();
+          stepperReload.moveTo(-reloadSteps);
+          stepperReload.setSpeed(reloadSpeed);
+          while (stepperReload.distanceToGo() != 0){ 
+            stepperReload.runSpeedToPosition(); 
+          }
+          Serial.println("here");
+          Serial.println("Enter 1 to jog again, 2 to exit");
+          while(Serial.available() != true){
+           //wait for command to be given
+          }
+          input = Serial.parseInt();
+          if(input == "1"){
+            jog_loop_flag = 0;
+          }
+          else{
+            jog_loop_flag = 1;
           }
         }
         else if(input == "5"){
@@ -343,73 +327,70 @@ void loop() {
 }
 
 void parseInfo(){
-  float phi; //in degrees
-  float phi_old; //in degrees
-  float thetha; //in degrees
-  float thetha_old; //in degrees
-  float carriage_platform_length; //how far the reloading platform is pulled back
-  float x_ball; //Where ball is hit on x-axis relative to (0,0) coordinate
-  float y_ball; //Where ball is hit on y-axis relative to (0,0) coordinate
-  float x_turret; //Where turret is on x-axis relative to (0,0) coordinate
-  float y_turret; //Where turret is on y-axis relative to (0,0) coordinate
-
-  
-  
+//  float phi; //in degrees
+//  float thetha; //in degrees
+//  float carriage_platform_length; //how far the reloading platform is pulled back
+//  float x_ball; //Where ball is hit on x-axis relative to (0,0) coordinate
+//  float y_ball; //Where ball is hit on y-axis relative to (0,0) coordinate
+//  float x_turret; //Where turret is on x-axis relative to (0,0) coordinate
+//  float y_turret; //Where turret is on y-axis relative to (0,0) coordinate
 }
 
 void calculateInfo(){ //used to find the required steps for yaw, pitch, and the turret
   //find orientation of chassis
   
-  if(y_turret-y_ball > 0 && x_ball-x_turret < 0){ // ball closer to net than chassis and ball on left of chassis 
-    //phi is positive
-    orientation = 1;
-  }
-  else if(y_turret-y_ball > 0 && x_ball-x_turret < 0){ // ball closer to net than chassis and ball on right of chassis 
-    //phi is negative
-    orientation = 2;
-  }
-  else if(y_turret-y_ball < 0 && x_ball-x_turret > 0){ // ball farther from net than chassis and ball on left of chassis 
-    //phi is negative
-    orientation = 3;
-  }
-  else if(y_turret-y_ball < 0 && x_ball-x_turret < 0){ // ball farther from net than chassis and ball on right of chassis 
-    //phi is positive
-    orientation = 4;
-  }
-  else if(abs(y_turret-y_ball) < 0.001){ // ball and turret are roughly same distance from net (accounting for rounding error in float value)
-    //phi is zero
-    orientation = 5;
-  }
-  else{ //throw error
-    orientation = 6; 
-    Serial.println("Error: Orientation values do not work");
-  }
+//  if(y_turret-y_ball > 0 && x_ball-x_turret < 0){ // ball closer to net than chassis and ball on left of chassis 
+//    //phi is positive
+//    orientation = 1;
+//  }
+//  else if(y_turret-y_ball > 0 && x_ball-x_turret < 0){ // ball closer to net than chassis and ball on right of chassis 
+//    //phi is negative
+//    orientation = 2;
+//  }
+//  else if(y_turret-y_ball < 0 && x_ball-x_turret > 0){ // ball farther from net than chassis and ball on left of chassis 
+//    //phi is negative
+//    orientation = 3;
+//  }
+//  else if(y_turret-y_ball < 0 && x_ball-x_turret < 0){ // ball farther from net than chassis and ball on right of chassis 
+//    //phi is positive
+//    orientation = 4;
+//  }
+//  else if(abs(y_turret-y_ball) < 0.001){ // ball and turret are roughly same distance from net (accounting for rounding error in float value)
+//    //phi is zero
+//    orientation = 5;
+//  }
+//  else{ //throw error
+//    orientation = 6; 
+//    Serial.println("Error: Orientation values do not work");
+//  }
   
-  //yaw calculations
-  phi = atan(abs(y_turret-y_ball)/abs(x_ball-x_turret));
+//  //yaw calculations
+//  phi = atan(abs(y_turret-y_ball)/abs(x_ball-x_turret));
 
   //yaw
-  if(orientation == 1 || orientation == 4){
-     yawSteps = round(phi/360*step_resolution*gear_ratio);
-  }
-  else if(orientation == 2 || orientation == 3){
-     yawSteps = -1*round(phi/360*step_resolution*gear_ratio);
-  }
-  else if(orientation == 5){
-    yawSteps = 0;
-  }
+  yawSteps = round(phi/360*step_resolution*gear_ratio);
+//  if(orientation == 1 || orientation == 4){
+//     yawSteps = round(phi/360*step_resolution*gear_ratio);
+//  }
+//  else if(orientation == 2 || orientation == 3){
+//     yawSteps = -1*round(phi/360*step_resolution*gear_ratio);
+//  }
+//  else if(orientation == 5){
+//    yawSteps = 0;
+//  }
  
   //pitch
-  if(orientation == 1 || orientation == 3){
-     pitchSteps = round(thetha*(1/angle_to_turn_ratio)*step_resolution); 
-     //need to make sure that initial angle is 0
-  }
-  else if(orientation == 2 || orientation == 4){
-     pitchSteps = -1*round(thetha*(1/angle_to_turn_ratio)*step_resolution);
-  }
-  else if(orientation == 5){
-    pitchSteps = 0;
-  }
+  pitchSteps = round(thetha*(1/angle_to_turn_ratio)*step_resolution); 
+//  if(orientation == 1 || orientation == 3){
+//     pitchSteps = round(thetha*(1/angle_to_turn_ratio)*step_resolution); 
+//     //need to make sure that initial angle is 0
+//  }
+//  else if(orientation == 2 || orientation == 4){
+//     pitchSteps = -1*round(thetha*(1/angle_to_turn_ratio)*step_resolution);
+//  }
+//  else if(orientation == 5){
+//    pitchSteps = 0;
+//  }
 
 }
 
@@ -432,27 +413,13 @@ void runMotors(){
 
   //turret
     i = 0;
-    //might need to change this to LEN and LPWM
-    digitalWrite(REN, HIGH);
-    analogWrite(RPWM, 180);
-    while(i<carriage_platform_length*(1/carriage_travel_ratio)*1000){
-      delay(1);
-      if(Serial.available()>0){
-          input = Serial.readStringUntil("/n");
-          digitalWrite(REN, LOW);
-          analogWrite(RPWM, 0);
-          break;
-        }
-      i = i + 1;
-    }
-    digitalWrite(REN, LOW);
-    analogWrite(RPWM, 0);
+    //ADD THIS BACK FOR THE NEW CODE
     Serial.println("turret finished");
 }
 
 void launch(){
   //move reload pin
-    stepperReload.moveTo(reloadSteps);
+    stepperReload.moveTo(-reloadSteps);
     stepperReload.setSpeed(reloadSpeed);
     while (stepperReload.distanceToGo() != 0){ 
       stepperReload.runSpeedToPosition(); 
@@ -462,21 +429,42 @@ void launch(){
 
 void reload(){
   i = 0;
-  //might need to change this to REN and RPWM
-  digitalWrite(LEN, HIGH);
-  analogWrite(LPWM, 180);
-  while(i<carriage_platform_length*(1/carriage_travel_ratio)*1000){
-    delay(1);
-    //add interrupt if required
-    if(Serial.available()>0){
-        input = Serial.readStringUntil("/n");
-        digitalWrite(LEN, LOW);
-        analogWrite(LPWM, 0);
-        break;
-      }
-    i = i + 1;
-  }
-  digitalWrite(LEN, LOW);
-  analogWrite(LPWM, 0);
+  digitalWrite(REN, HIGH);
+  run_drill_back(seconds,tenth_seconds);
   Serial.println("Reload finished");
+}
+
+void run_drill_back(float seconds, float tenth_seconds){
+  for(j = 0;j<=seconds;j++){//this is the seconds
+    if(j == seconds){ //if on last loop
+       i_max = 32767*tenth_seconds; 
+    }
+    else {
+       i_max = 32767; 
+    }
+    for(i=0;i<i_max;i++){ //33112 loops for second. 2^15 - 1 = 32767 max = 0.987s so close enough 
+     digitalWrite(LPWM,HIGH);//Front, 5.1 microsec per instruction
+     delayMicroseconds(15.6); //20microsecond in total per loop for the delays
+     digitalWrite(LPWM,LOW);//Front
+     delayMicroseconds(4.4);
+    }
+  }
+}
+
+void run_drill_forward(float seconds, float tenth_seconds){
+  for(j = 0;j<=seconds;j++){//this is the seconds
+    //32767/i = 1/0.5 to find the i value, thus do i = 32767*frac to find i
+    if(j == seconds){ //if on last loop
+       i_max = 32767*tenth_seconds; 
+    }
+    else {
+       i_max = 32767; 
+    }
+    for(i=0;i<i_max;i++){ //33112 loops for second. 2^15 - 1 = 32767 max = 0.987s so close enough 
+     digitalWrite(RPWM,HIGH);//Front, 5.1 microsec per instruction
+     delayMicroseconds(15.6); //20microsecond in total per loop for the delays
+     digitalWrite(RPWM,LOW);//Front
+     delayMicroseconds(4.4);
+    }
+  }
 }
