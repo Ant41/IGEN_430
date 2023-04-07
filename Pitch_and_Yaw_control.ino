@@ -48,7 +48,7 @@ int yawSpeed = 100;
 int pitchSpeed = 800;
 int reloadSpeed = 100;
 float angle_to_turn_ratio = 5; //5 degrees per rotation (averaged for datapoints)
-float reloadSteps = 0.75*step_resolution; //75% of a rotation will make the release mechanism function
+float reloadSteps = 0.70*step_resolution; //75% of a rotation will make the release mechanism function
 float carriage_travel_ratio = 55; //in mm/s, the amount of linear travel per second of the reload platform
 
 //computational or PI variables
@@ -327,81 +327,39 @@ void loop() {
 }
 
 void parseInfo(){
-//  float phi; //in degrees
-//  float thetha; //in degrees
-//  float carriage_platform_length; //how far the reloading platform is pulled back
-//  float x_ball; //Where ball is hit on x-axis relative to (0,0) coordinate
-//  float y_ball; //Where ball is hit on y-axis relative to (0,0) coordinate
-//  float x_turret; //Where turret is on x-axis relative to (0,0) coordinate
-//  float y_turret; //Where turret is on y-axis relative to (0,0) coordinate
+  Serial.println("Enter pitch in degrees: ");
+  while(Serial.available() != true){
+   //wait for command to be given
+  }
+  thetha = Serial.parseInt();
+  Serial.println("Enter yaw in degrees: ");
+  while(Serial.available() != true){
+   //wait for command to be given
+  }
+  phi = Serial.parseInt();
+  Serial.println("Enter carriage travel length in mm: ");
+  while(Serial.available() != true){
+   //wait for command to be given
+  }
+  carriage_platform_length = Serial.parseInt();
 }
 
 void calculateInfo(){ //used to find the required steps for yaw, pitch, and the turret
-  //find orientation of chassis
-  
-//  if(y_turret-y_ball > 0 && x_ball-x_turret < 0){ // ball closer to net than chassis and ball on left of chassis 
-//    //phi is positive
-//    orientation = 1;
-//  }
-//  else if(y_turret-y_ball > 0 && x_ball-x_turret < 0){ // ball closer to net than chassis and ball on right of chassis 
-//    //phi is negative
-//    orientation = 2;
-//  }
-//  else if(y_turret-y_ball < 0 && x_ball-x_turret > 0){ // ball farther from net than chassis and ball on left of chassis 
-//    //phi is negative
-//    orientation = 3;
-//  }
-//  else if(y_turret-y_ball < 0 && x_ball-x_turret < 0){ // ball farther from net than chassis and ball on right of chassis 
-//    //phi is positive
-//    orientation = 4;
-//  }
-//  else if(abs(y_turret-y_ball) < 0.001){ // ball and turret are roughly same distance from net (accounting for rounding error in float value)
-//    //phi is zero
-//    orientation = 5;
-//  }
-//  else{ //throw error
-//    orientation = 6; 
-//    Serial.println("Error: Orientation values do not work");
-//  }
-  
-//  //yaw calculations
-//  phi = atan(abs(y_turret-y_ball)/abs(x_ball-x_turret));
-
   //yaw
   yawSteps = round(phi/360*step_resolution*gear_ratio);
-//  if(orientation == 1 || orientation == 4){
-//     yawSteps = round(phi/360*step_resolution*gear_ratio);
-//  }
-//  else if(orientation == 2 || orientation == 3){
-//     yawSteps = -1*round(phi/360*step_resolution*gear_ratio);
-//  }
-//  else if(orientation == 5){
-//    yawSteps = 0;
-//  }
  
   //pitch
   pitchSteps = round(thetha*(1/angle_to_turn_ratio)*step_resolution); 
-//  if(orientation == 1 || orientation == 3){
-//     pitchSteps = round(thetha*(1/angle_to_turn_ratio)*step_resolution); 
-//     //need to make sure that initial angle is 0
-//  }
-//  else if(orientation == 2 || orientation == 4){
-//     pitchSteps = -1*round(thetha*(1/angle_to_turn_ratio)*step_resolution);
-//  }
-//  else if(orientation == 5){
-//    pitchSteps = 0;
-//  }
-
 }
 
-void runMotors(){
+void runMotors(){ //PIN STARTS OUT
   //move yaw motor
-    stepperYaw.moveTo(yawSteps);
-    stepperYaw.setSpeed(yawSpeed);
-    while (stepperYaw.distanceToGo() != 0){ 
-      stepperYaw.runSpeedToPosition(); 
-    }
-    Serial.println("Yaw finished");
+//    stepperYaw.moveTo(yawSteps);
+//    stepperYaw.setSpeed(yawSpeed);
+//    while (stepperYaw.distanceToGo() != 0){ 
+//      stepperYaw.runSpeedToPosition(); 
+//    }
+//    Serial.println("Yaw finished");
 
   //move pitch motor
     stepperPitch.moveTo(pitchSteps);
@@ -411,15 +369,27 @@ void runMotors(){
     }
     Serial.println("Pitch finished");
 
-  //turret
+    //move reload pin
+    stepperReload.moveTo(-reloadSteps);
+    stepperReload.setSpeed(reloadSpeed);
+    while (stepperReload.distanceToGo() != 0){ 
+      stepperReload.runSpeedToPosition(); 
+    }
+    Serial.println("Release finished");
+
+  //pull turret back 
     i = 0;
-    //ADD THIS BACK FOR THE NEW CODE
+    Time = abs(carriage_platform_length/carriage_travel_ratio);
+    seconds = int((Time*100-(int((Time*100))%100))/100); //(1.55*100 - 55)/100
+    tenth_seconds = Time-seconds;
+    digitalWrite(LEN, HIGH);
+    run_drill_back(seconds,tenth_seconds);
     Serial.println("turret finished");
 }
 
 void launch(){
   //move reload pin
-    stepperReload.moveTo(-reloadSteps);
+    stepperReload.moveTo(0);
     stepperReload.setSpeed(reloadSpeed);
     while (stepperReload.distanceToGo() != 0){ 
       stepperReload.runSpeedToPosition(); 
@@ -430,11 +400,18 @@ void launch(){
 void reload(){
   i = 0;
   digitalWrite(REN, HIGH);
-  run_drill_back(seconds,tenth_seconds);
+  run_drill_forward(seconds,tenth_seconds);
   Serial.println("Reload finished");
+
+  stepperReload.moveTo(-reloadSteps);
+  stepperReload.setSpeed(reloadSpeed);
+  while (stepperReload.distanceToGo() != 0){ 
+    stepperReload.runSpeedToPosition(); 
+  }
+  Serial.println("Release finished");
 }
 
-void run_drill_back(float seconds, float tenth_seconds){
+void run_drill_forward(float seconds, float tenth_seconds){
   for(j = 0;j<=seconds;j++){//this is the seconds
     if(j == seconds){ //if on last loop
        i_max = 32767*tenth_seconds; 
@@ -451,7 +428,7 @@ void run_drill_back(float seconds, float tenth_seconds){
   }
 }
 
-void run_drill_forward(float seconds, float tenth_seconds){
+void run_drill_back(float seconds, float tenth_seconds){
   for(j = 0;j<=seconds;j++){//this is the seconds
     //32767/i = 1/0.5 to find the i value, thus do i = 32767*frac to find i
     if(j == seconds){ //if on last loop
