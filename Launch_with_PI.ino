@@ -39,8 +39,8 @@ int yawSpeed = 100;
 int pitchSpeed = 800;
 int reloadSpeed = 100;
 float angle_to_turn_ratio = 5; //5 degrees per rotation (averaged for datapoints)
-float reloadSteps = 0.75*step_resolution; //75% of a rotation will make the release mechanism function
-float carriage_travel_ratio = 30; //in mm/s, the amount of linear travel per second of the reload platform
+float reloadSteps = 0.70*step_resolution; //75% of a rotation will make the release mechanism function
+float carriage_travel_ratio = 55; //in mm/s, the amount of linear travel per second of the reload platform
 
 //computational or PI variables
 //yaw, pitch, carriage_platform_length from PI 
@@ -51,6 +51,10 @@ int yawSteps; //number of steps for the yaw motor to move
 int pitchSteps; //number of steps for the pitch motor to move
 String input;
 int jog_loop_flag = 0;
+float i_max;
+float Time;
+float seconds;
+float tenth_seconds;
 
 //parsing variables
 const int max_length = 50;
@@ -65,10 +69,11 @@ int j = 0;
 float num1;
 float num2;
 float num3;
+String data;
 
 void setup() {
   Serial.begin(115200);
-  Serial.setTimeout(1000); //Milliseconds 
+  Serial.setTimeout(2000); //Milliseconds 
   
   stepperPitch.setMaxSpeed(2000);
   stepperPitch.setAcceleration(2000);
@@ -85,36 +90,31 @@ void setup() {
   pinMode(RPWM, OUTPUT);
   pinMode(LPWM, OUTPUT);
 
-  digitalWrite(REN, LOW);
-  digitalWrite(LEN, LOW);
+  digitalWrite(REN, HIGH);
+  digitalWrite(LEN, HIGH);
 
   resetData();
-
-//  Serial.println("initializing");
-//  delay(1000);
-//  serial_in = Serial.readStringUntil('\n');
-
 
 }
 
 void loop() {
   if(Serial.available()>0){
-    String data = Serial.readStringUntil('\n');
+    data = Serial.readStringUntil('\n');
     parseInfo();
     calculateInfo();
     runMotors();
-//    launch();
-//    reload();
-//    resetData();
-//    stepperPitch.setCurrentPosition(1);
-//    Serial.println("done");
-//    debug = Serial.readStringUntil('\n');
+    launch();
+    reload();
+    resetData();
+    data = Serial.readStringUntil('\n');
   }
 }
 
 void parseInfo(){
   //thetha, phi, x
   serial_in = Serial.readStringUntil('\n');
+  Serial.println(serial_in);
+  data = Serial.readStringUntil('\n');
   for(i = 0;i<serial_in.length();i++){
     test[i] = serial_in[i];
   }
@@ -147,13 +147,14 @@ void parseInfo(){
 
   thetha = num1; 
   phi = num2;
-  carriage_platform_length = num3;
+  carriage_platform_length = num3*1000;
 //  Serial.println(num1*2);
 //  Serial.println(num2*2);
 //  Serial.println(num3*2);
   String str1 = String(thetha);
   String str2 = String(phi);
   String str3 = String(carriage_platform_length);
+//  Serial.println(str1 + " " + str2 + " " + str3);
 }
 
 void calculateInfo(){ //used to find the required steps for yaw and pitch
@@ -162,17 +163,16 @@ void calculateInfo(){ //used to find the required steps for yaw and pitch
  
   //pitch
   pitchSteps = round(thetha*(1/angle_to_turn_ratio)*step_resolution); 
-  Serial.println(pitchSteps);
+//  Serial.println(pitchSteps);
 }
 
-void runMotors(){
-//  //move yaw motor
-//    stepperYaw.moveTo(yawSteps);
-//    stepperYaw.setSpeed(yawSpeed);
-//    while (stepperYaw.distanceToGo() != 0){ 
-//      stepperYaw.runSpeedToPosition(); 
-//    }
-//    Serial.println("Yaw finished");
+void runMotors(){ //PIN STARTS OUT
+//  move yaw motor
+    stepperYaw.moveTo(yawSteps);
+    stepperYaw.setSpeed(yawSpeed);
+    while (stepperYaw.distanceToGo() != 0){ 
+      stepperYaw.runSpeedToPosition(); 
+    }
 
   //move pitch motor
     stepperPitch.moveTo(pitchSteps);
@@ -180,42 +180,80 @@ void runMotors(){
     while (stepperPitch.distanceToGo() != 0){ 
       stepperPitch.runSpeedToPosition(); 
     }
-//    Serial.println("Pitch finished");
 
-  //turret
-//    i = 0;
-//    digitalWrite(LEN, HIGH);
-//    analogWrite(LPWM, 180);
-//    while(i<carriage_platform_length*(1/carriage_travel_ratio)*1000){
-//      delay(1);
-//      i = i + 1;
-//    }
-//    digitalWrite(LEN, LOW);
-//    analogWrite(LPWM, 0);
-//    Serial.println("turret finished");
-}
-
-void launch(){
-  //move reload pin
+    //move reload pin
+    Serial.println("reload in run motor");
     stepperReload.moveTo(-reloadSteps);
     stepperReload.setSpeed(reloadSpeed);
     while (stepperReload.distanceToGo() != 0){ 
       stepperReload.runSpeedToPosition(); 
     }
-//    Serial.println("Release finished");
+
+  //pull turret back 
+    i = 0;
+    Time = abs(carriage_platform_length/carriage_travel_ratio);
+    seconds = int((Time*100-(int((Time*100))%100))/100); //(1.55*100 - 55)/100
+    tenth_seconds = Time-seconds;
+    digitalWrite(LEN, HIGH);
+    run_drill_back(seconds,tenth_seconds);
+}
+
+void launch(){
+  //move reload pin
+    stepperReload.moveTo(0);
+    stepperReload.setSpeed(reloadSpeed);
+    while (stepperReload.distanceToGo() != 0){ 
+      stepperReload.runSpeedToPosition(); 
+    }
+    Serial.println("reload 1");
 }
 
 void reload(){ //pull the platform back to the front of the turret
   i = 0;
   digitalWrite(REN, HIGH);
-  analogWrite(RPWM, 180);
-  while(i<carriage_platform_length*(1/carriage_travel_ratio)*1000){
-    delay(1);
-    i = i + 1;
+  run_drill_forward(seconds,tenth_seconds);
+
+  Serial.println("reload 2");
+  stepperReload.moveTo(-reloadSteps);
+  stepperReload.setSpeed(reloadSpeed);
+  while (stepperReload.distanceToGo() != 0){ 
+    stepperReload.runSpeedToPosition(); 
   }
-  digitalWrite(REN, LOW);
-  analogWrite(RPWM, 0);
-//  Serial.println("Reload finished");
+}
+
+void run_drill_forward(float seconds, float tenth_seconds){
+  for(j = 0;j<=seconds;j++){//this is the seconds
+    if(j == seconds){ //if on last loop
+       i_max = 32767*tenth_seconds; 
+    }
+    else {
+       i_max = 32767; 
+    }
+    for(i=0;i<i_max;i++){ //33112 loops for second. 2^15 - 1 = 32767 max = 0.987s so close enough 
+     digitalWrite(LPWM,HIGH);//Front, 5.1 microsec per instruction
+     delayMicroseconds(15.6); //20microsecond in total per loop for the delays
+     digitalWrite(LPWM,LOW);//Front
+     delayMicroseconds(4.4);
+    }
+  }
+}
+
+void run_drill_back(float seconds, float tenth_seconds){
+  for(j = 0;j<=seconds;j++){//this is the seconds
+    //32767/i = 1/0.5 to find the i value, thus do i = 32767*frac to find i
+    if(j == seconds){ //if on last loop
+       i_max = 32767*tenth_seconds; 
+    }
+    else {
+       i_max = 32767; 
+    }
+    for(i=0;i<i_max;i++){ //33112 loops for second. 2^15 - 1 = 32767 max = 0.987s so close enough 
+     digitalWrite(RPWM,HIGH);//Front, 5.1 microsec per instruction
+     delayMicroseconds(15.6); //20microsecond in total per loop for the delays
+     digitalWrite(RPWM,LOW);//Front
+     delayMicroseconds(4.4);
+    }
+  }
 }
 
 void resetData(){
