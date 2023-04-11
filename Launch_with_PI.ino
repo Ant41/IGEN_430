@@ -1,5 +1,6 @@
 #include <AccelStepper.h>
 #include <math.h>
+#include <Servo.h>
 
 // Define pin connections
 const int dirPinPitch = 2;
@@ -12,6 +13,7 @@ const int REN = 8;
 const int LEN = 9;
 const int RPWM = 10;
 const int LPWM = 11;
+const int servo_pin = 12;
 
 //// Define motor interface type
 #define motorInterfaceType 1 //1 means a stepper driver
@@ -19,6 +21,7 @@ AccelStepper stepperPitch(motorInterfaceType, stepPinPitch, dirPinPitch);; // De
 AccelStepper stepperYaw(motorInterfaceType, stepPinYaw, dirPinYaw);; // Defaults to AccelStepper::FULL4WIRE (4 pins) on 2, 3, 4, 
 AccelStepper stepperReload(motorInterfaceType, stepPinReload, dirPinReload);; // Defaults to AccelStepper::FULL4WIRE (4 pins) on 2, 3, 4, 5
 
+Servo myservo;
 
 //variables
 
@@ -39,8 +42,8 @@ int yawSpeed = 100;
 int pitchSpeed = 800;
 int reloadSpeed = 100;
 float angle_to_turn_ratio = 5; //5 degrees per rotation (averaged for datapoints)
-float reloadSteps = 0.70*step_resolution; //75% of a rotation will make the release mechanism function
-float carriage_travel_ratio = 55; //in mm/s, the amount of linear travel per second of the reload platform
+float reloadSteps = 0.73*step_resolution; //75% of a rotation will make the release mechanism function
+float carriage_travel_ratio = 104; //in mm/s, the amount of linear travel per second of the reload platform
 
 //computational or PI variables
 //yaw, pitch, carriage_platform_length from PI 
@@ -64,12 +67,15 @@ char test[max_length];
 char var_1[max_length];
 char var_2[max_length];
 char var_3[max_length];
+char var_4[max_length];
 int i = 0;
 int j = 0;
 float num1;
 float num2;
 float num3;
+float num4;
 String data;
+int number_of_sets = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -93,6 +99,9 @@ void setup() {
   digitalWrite(REN, HIGH);
   digitalWrite(LEN, HIGH);
 
+  myservo.attach(servo_pin);
+  myservo.write(210);  
+
   resetData();
 
 }
@@ -102,16 +111,18 @@ void loop() {
     data = Serial.readStringUntil('\n');
     parseInfo();
     calculateInfo();
-    runMotors();
-    launch();
-    reload();
+    for(number_of_sets = 0;number_of_sets < num4;number_of_sets++){
+      runMotors();
+      launch();
+      reload();
+    }
     resetData();
     data = Serial.readStringUntil('\n');
   }
 }
 
 void parseInfo(){
-  //thetha, phi, x
+  //thetha, phi, x, N
   serial_in = Serial.readStringUntil('\n');
   Serial.println(serial_in);
   data = Serial.readStringUntil('\n');
@@ -137,13 +148,21 @@ void parseInfo(){
     num2 = atof(var_2);
     j = 0;
     i = i + 1;
-    while(test[i]!='\0'){ //turret length
+    while(test[i]!='N'){ //launch length
       var_3[j] = test[i];
       j = j + 1;
       i = i + 1;
     }
+    num3 = atof(var_3);
+    j = 0;
+    i = i + 1;
+    while(test[i]!='\0'){ //turret length
+      var_4[j] = test[i];
+      j = j + 1;
+      i = i + 1;
+    }
+    num4 = atof(var_4);
   }
-  num3 = atof(var_3);
 
   thetha = num1; 
   phi = num2;
@@ -183,7 +202,7 @@ void runMotors(){ //PIN STARTS OUT
 
     //move reload pin
     Serial.println("reload in run motor");
-    stepperReload.moveTo(-reloadSteps);
+    stepperReload.moveTo(reloadSteps);
     stepperReload.setSpeed(reloadSpeed);
     while (stepperReload.distanceToGo() != 0){ 
       stepperReload.runSpeedToPosition(); 
@@ -208,13 +227,23 @@ void launch(){
     Serial.println("reload 1");
 }
 
-void reload(){ //pull the platform back to the front of the turret
+void reload(){ //pull the platform back to the front of the 
+  stepperPitch.moveTo(0);
+  stepperPitch.setSpeed(pitchSpeed);
+  while (stepperPitch.distanceToGo() != 0){ 
+    stepperPitch.runSpeedToPosition(); 
+  }
+  
+  myservo.write(120); //put ball in cup
+  delay(1000);
+  myservo.write(210);   
+
   i = 0;
   digitalWrite(REN, HIGH);
   run_drill_forward(seconds,tenth_seconds);
 
   Serial.println("reload 2");
-  stepperReload.moveTo(-reloadSteps);
+  stepperReload.moveTo(reloadSteps);
   stepperReload.setSpeed(reloadSpeed);
   while (stepperReload.distanceToGo() != 0){ 
     stepperReload.runSpeedToPosition(); 
@@ -224,34 +253,33 @@ void reload(){ //pull the platform back to the front of the turret
 void run_drill_forward(float seconds, float tenth_seconds){
   for(j = 0;j<=seconds;j++){//this is the seconds
     if(j == seconds){ //if on last loop
-       i_max = 32767*tenth_seconds; 
+       i_max = 19920*tenth_seconds; 
     }
     else {
-       i_max = 32767; 
+       i_max = 19920; 
     }
-    for(i=0;i<i_max;i++){ //33112 loops for second. 2^15 - 1 = 32767 max = 0.987s so close enough 
+    for(i=0;i<i_max;i++){ //19920 loops for second. 2^15 - 1 = 32767 max = 0.987s so close enough 
      digitalWrite(LPWM,HIGH);//Front, 5.1 microsec per instruction
-     delayMicroseconds(15.6); //20microsecond in total per loop for the delays
+     delayMicroseconds(39); //20microsecond in total per loop for the delays
      digitalWrite(LPWM,LOW);//Front
-     delayMicroseconds(4.4);
+     delayMicroseconds(1);
     }
   }
 }
 
 void run_drill_back(float seconds, float tenth_seconds){
   for(j = 0;j<=seconds;j++){//this is the seconds
-    //32767/i = 1/0.5 to find the i value, thus do i = 32767*frac to find i
     if(j == seconds){ //if on last loop
-       i_max = 32767*tenth_seconds; 
+       i_max = 19920*tenth_seconds; 
     }
     else {
-       i_max = 32767; 
+       i_max = 19920; 
     }
-    for(i=0;i<i_max;i++){ //33112 loops for second. 2^15 - 1 = 32767 max = 0.987s so close enough 
+    for(i=0;i<i_max;i++){ //19920 loops for second. 2^15 - 1 = 32767 
      digitalWrite(RPWM,HIGH);//Front, 5.1 microsec per instruction
-     delayMicroseconds(15.6); //20microsecond in total per loop for the delays
+     delayMicroseconds(39); //20microsecond in total per loop for the delays
      digitalWrite(RPWM,LOW);//Front
-     delayMicroseconds(4.4);
+     delayMicroseconds(1);
     }
   }
 }
